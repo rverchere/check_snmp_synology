@@ -1,11 +1,11 @@
 #!/bin/bash
 # check_snmp_synology for nagios
-# Version: 2.6
+# Version: 2.7
 # 07.12.2016  Nicolas Ordonez, Switzerland
 # Thanks to contributors:
 # - Tobias Schenke
 # Modified By:
-# 04.17.2019  Corben Eastman
+# 17.06.2020  Rémi VERCHERE
 #---------------------------------------------------
 # this plugin checks the health of your Synology NAS
 # - System status (Power, Fans)
@@ -38,6 +38,7 @@ healthWarningStatus=0
 healthCriticalStatus=0
 healthString=""
 checkDSMUpdate="yes"
+checkPreFlight="yes"
 allowedTypes=(system version temperature power fan disk raid ups)
 system=(model serialNumber systemStatus)
 version=(DSMVersion DSMUpgradeAvailable)
@@ -70,6 +71,7 @@ OID_CPUFanStatus="1.3.6.1.4.1.6574.1.4.2.0"
 #disk
 OID_disk=""
 OID_disk2=""
+OID_diskBase="1.3.6.1.4.1.6574.2.1.1"
 OID_diskID="1.3.6.1.4.1.6574.2.1.1.2"
 OID_diskModel="1.3.6.1.4.1.6574.2.1.1.3"
 OID_diskStatus="1.3.6.1.4.1.6574.2.1.1.5"
@@ -77,6 +79,7 @@ OID_diskTemp="1.3.6.1.4.1.6574.2.1.1.6"
 
 #raid
 OID_RAID=""
+OID_RAIDBase="1.3.6.1.4.1.6574.3.1.1"
 OID_RAIDName="1.3.6.1.4.1.6574.3.1.1.2"
 OID_RAIDStatus="1.3.6.1.4.1.6574.3.1.1.3"
 OID_Storage="1.3.6.1.2.1.25.2.3.1"
@@ -113,6 +116,7 @@ usage()
         echo "            -t [check type]	        The type of check to perform, must be one of the following: ${allowedTypes[@]}"
         echo ""
         echo "            -i   			Ignore DSM updates"
+        echo "            -b   			Ignore pre-flight checks (avoid snmpwalk before checks)"
         echo ""
         echo "examples:	./check_snmp_synology -u admin -p 1234 -h nas.intranet -t temperature"
         echo "	     	./check_snmp_synology -u admin -p 1234 -h nas.intranet -v -t system"
@@ -125,7 +129,7 @@ if [ "$1" == "--help" ]; then
     usage; exit 0
 fi
 
-while getopts 2:W:C:w:c:u:p:h:t:iU OPTNAME; do
+while getopts 2:W:C:w:c:u:p:h:t:iU,bU OPTNAME; do
         case "$OPTNAME" in
 	u)	SNMPUser="$OPTARG";;
         p)	SNMPPassword="$OPTARG";;
@@ -137,6 +141,7 @@ while getopts 2:W:C:w:c:u:p:h:t:iU OPTNAME; do
 	W)	warningTemperature="$OPTARG";;
 	C)	criticalTemperature="$OPTARG";;
 	i)	checkDSMUpdate="no";;
+        b)      checkPreFlight="no";;
         t)      checkType=("$OPTARG");;
         *)      usage;;
         esac
@@ -185,13 +190,18 @@ else
 	    exit 1
 	fi
     fi
-    tmpRequest=`$SNMPWALK $SNMPArgs $hostname $OID_syno 2> /dev/null`
-    if [ "$?" != "0" ] ; then
-        echo "CRITICAL - Problem with SNMP request, check user/password/host"
-        exit 2
+    if [ "$checkPreFlight" = "yes" ] ; then
+        tmpRequest=`$SNMPWALK $SNMPArgs $hostname $OID_syno 2> /dev/null`
+        if [ "$?" != "0" ] ; then
+            echo "CRITICAL - Problem with SNMP request, check user/password/host"
+            exit 2
+        fi
     fi
 
     if [ "$checkType" = "disk" ] ; then
+        if [ "$checkPreFlight" = "no" ] ; then
+            tmpRequest=`$SNMPWALK $SNMPArgs $hostname $OID_diskBase 2> /dev/null`
+        fi
         nbDisk=$(echo "$tmpRequest" | grep $OID_diskID | wc -l)
         for i in `seq 1 $nbDisk`;
         do
@@ -204,6 +214,9 @@ else
     fi
 
     if [ "$checkType" = "raid" ] ; then
+        if [ "$checkPreFlight" = "no" ] ; then
+            tmpRequest=`$SNMPWALK $SNMPArgs $hostname $OID_RAIDBase 2> /dev/null`
+        fi
         nbRAID=$(echo "$tmpRequest" | grep $OID_RAIDName | wc -l)
         for i in `seq 1 $nbRAID`;
         do
