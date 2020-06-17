@@ -37,6 +37,8 @@ hostname=""
 healthWarningStatus=0
 healthCriticalStatus=0
 healthString=""
+message=""
+perfdata=""
 checkDSMUpdate="yes"
 checkPreFlight="yes"
 allowedTypes=(system version temperature power fan disk raid ups)
@@ -375,7 +377,7 @@ else
             storageID[$i]=$(echo "$syno_diskspace" | grep -i "= \"\?/${storageName[$i]}\"\?" | cut -d "=" -f1 | rev | cut -d "." -f1 | rev)
 
             if [ "${storageID[$i]}" != "" ] ; then
-                storageSize[$i]=$(echo "$syno_diskspace" | grep "$OID_StorageSize.${storageID[$i]}" | cut -d "=" -f2 )
+                storageSize[$i]=$(echo "$syno_diskspace" | grep "$OID_StorageSize.${storageID[$i]}" | cut -d " " -f3 )
                 storageSizeUsed[$i]=$(echo "$syno_diskspace" | grep "$OID_StorageSizeUsed.${storageID[$i]}" | cut -d "=" -f2 )
                 storageAllocationUnits[$i]=$(echo "$syno_diskspace" | grep "$OID_StorageAllocationUnits.${storageID[$i]}" | cut -d "=" -f2 )
                 storagePercentUsed[$i]=$((${storageSizeUsed[$i]} * 100 / ${storageSize[$i]}))
@@ -412,24 +414,22 @@ else
     fi
 
     case $checkType in
-        "system")         echo "Synology model:		$model" ;
-                          echo "Synology s/n:		$serialNumber" ;
-                          echo "System Status:		 $systemStatus" ;;
-        "version")        echo "DSM Version:		$DSMVersion" ;
-                          echo "DSM update:		 $DSMUpgradeAvailable" ;;
-        "temperature")    echo "Temperature:		 $temperature" ;;
-        "power")	  echo "Power Status:		 $powerStatus" ;;
-        "fan")            echo "System Fan Status:	 $systemFanStatus" ;
-                          echo "CPU Fan Status:		 $CPUFanStatus" ;;
-        "disk")           echo "Number of disks:         $nbDisk" ;
+        "system")         message="Synology model:$model Synology s/n:$serialNumber System Status:$systemStatus" ;;
+        "version")        message="DSM Version:$DSMVersion DSM update:$DSMUpgradeAvailable";;
+        "temperature")    message="Temperature:$temperature"
+                          perfdata="|temp=$temperature;80;90;;";;
+        "power")          message="Power Status:$powerStatus" ;;
+        "fan")            message="System Fan Status:$systemFanStatus CPU Fan Status:$CPUFanStatus" ;;
+        "disk")           echo "Number of disks:$nbDisk" ;
                           for i in `seq 1 $nbDisk`;
                           do
                               echo " ${diskID[$i]} (model:${diskModel[$i]}) status:${diskStatus[$i]} temperature:${diskTemp[$i]}" ;
                               done ;;
-        "raid")           echo "Number of RAID volume:   $nbRAID" ;
+        "raid")           message="Number of RAID volume:$nbRAID";perfdata="|"
                           for i in `seq 1 $nbRAID`;
                           do
-                              echo " ${RAIDName[$i]} status:${RAIDStatus[$i]} ${storagePercentUsedString[$i]}" ;
+                              message="$message ${RAIDName[$i]} status:${RAIDStatus[$i]} ${storagePercentUsedString[$i]}/${storageSize[$i]}"
+			      perfdata="$perfdata disk_pourcent=${storagePercentUsed[$i]}%;$warningStorage;$criticalStorage disk_used=${storageSize[$i]} "
                           done ;;
     esac
 
@@ -449,8 +449,8 @@ else
 	    echo "  Load:			$upsLoad"
 	    echo "  Battery charge:	$upsBatteryCharge"
 	    echo "  Battery charge warning:$upsBatteryChargeWarning"
+	    echo "";
 	fi
-	echo "";
 
     if [ "$healthCriticalStatus" = "1" ] ; then
 	echo "CRITICAL - $healthString"
@@ -461,7 +461,7 @@ else
 	exit 1
     fi
     if [ "$healthCriticalStatus" = "0" ] && [ "$healthWarningStatus" = "0" ] ; then
-	echo "OK - $healthString is in good health"
+	echo "OK - $healthString is in good health $message $perfdata"
 	exit 0
     fi
 fi
